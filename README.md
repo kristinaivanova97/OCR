@@ -4,7 +4,7 @@ This is a small project written as a part of interview session in a few evenings
 The task was to implement an OCR with tesseract to be able to read .png, .jpeg and .pdf files and  extract readable text.
 Preprocessing, tesseract extraction and postprocessing parts must be included.
 
-#### Prerequisites (assume numpy, datetime, re and os are already installed):
+### Prerequisites (assume numpy, datetime, re and os are already installed):
 
 pip install opencv-python;
 
@@ -29,7 +29,7 @@ nltk.download('averaged_perceptron_tagger');
 nltk.download('maxent_ne_chunker'); 
 nltk.download('words'); 
 
-#### Useful articles which helped me to understand the task and write some code blocks:
+### Useful articles which helped me to understand the task and write some code blocks:
 
 https://tesseract-ocr.github.io/tessdoc/#usage
 
@@ -49,7 +49,7 @@ https://towardsdatascience.com/extracting-text-from-scanned-pdf-using-pytesserac
 
 https://qna.habr.com/q/841085
 
-Launch with:
+### Launch with:
 
 python3 Tesseract.py --input test.png --output Result.txt --verbose type
 
