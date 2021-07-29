@@ -52,7 +52,8 @@ https://qna.habr.com/q/841085
 Launch with:
 
 python3 Tesseract.py --input test.png --output Result.txt --verbose type
-as type you can set 0, 1, 2
+
+as "type" you can set 0, 1, 2
 
 2 - save images on some stages and full logging;
 
