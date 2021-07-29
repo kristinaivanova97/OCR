@@ -1,10 +1,10 @@
-### OCR for three file types
+## OCR for three file types
 This is a small project written as a part of interview session in a few evenings.
 
 The task was to implement an OCR with tesseract to be able to read .png, .jpeg and .pdf files and  extract readable text.
 Preprocessing, tesseract extraction and postprocessing parts must be included.
 
-Prerequisites (assume numpy, datetime, re and os are already installed):
+#### Prerequisites (assume numpy, datetime, re and os are already installed):
 
 pip install opencv-python;
 
@@ -25,11 +25,11 @@ pip install pyenchant;
 pip install nltk;
 
 import nltk
-nltk.download('averaged_perceptron_tagger')
-nltk.download('maxent_ne_chunker')
-nltk.download('words')
+nltk.download('averaged_perceptron_tagger'); 
+nltk.download('maxent_ne_chunker'); 
+nltk.download('words'); 
 
-Useful articles which helped me to understand the task and write some code blocks:
+#### Useful articles which helped me to understand the task and write some code blocks:
 
 https://tesseract-ocr.github.io/tessdoc/#usage
 https://tesseract-ocr.github.io/tessdoc/ImproveQuality
