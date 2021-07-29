@@ -32,13 +32,21 @@ nltk.download('words');
 #### Useful articles which helped me to understand the task and write some code blocks:
 
 https://tesseract-ocr.github.io/tessdoc/#usage
+
 https://tesseract-ocr.github.io/tessdoc/ImproveQuality
+
 https://www.pyimagesearch.com/2017/07/17/credit-card-ocr-with-opencv-and-python/
+
 https://docs.opencv.org/master/d7/d4d/tutorial_py_thresholding.html
+
 https://medium.com/cashify-engineering/improve-accuracy-of-ocr-using-image-preprocessing-8df29ec3a033
+
 http://www.sk-spell.sk.cx/tesseract-ocr-parameters-in-302-version
+
 https://medium.com/states-title/using-nlp-bert-to-improve-ocr-accuracy-385c98ae174c
+
 https://towardsdatascience.com/extracting-text-from-scanned-pdf-using-pytesseract-open-cv-cd670ee38052
+
 https://qna.habr.com/q/841085
 
 Launch with:
