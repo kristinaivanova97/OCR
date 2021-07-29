@@ -1,3 +1,4 @@
+# OCR for three document types. Launch possibilities and prerequisites are written in README.md
 import pytesseract
 import cv2
 import numpy as np
@@ -17,6 +18,7 @@ from enchant.checker import SpellChecker
 from difflib import SequenceMatcher
 
 PDF_DPI = 350
+IM_DIR = 'transformed_images'
 
 
 def check_and_read_input(input_file, output_file):
@@ -175,11 +177,32 @@ class PostprocessImage:
 			text_original = text_original.replace('[MASK]', predicted_token, 1)
 		return text_original
 
+	def clean_unacceptable_chars(self, text):
+
+		unacceptable = re.compile(r'([a-zA-Z])\1{2,10}')
+		text = unacceptable.sub('', text)
+		return text
+
+	def get_parts(self, text):
+
+		words = text.split(" ")
+		text_part = ''
+		text_parts = []
+		for word in words:
+			text_part += word + ' '
+			if len(text_part) >= 256:
+				text_parts.append(text_part)
+				text_part = ''
+		if text_part:
+			text_parts.append(text_part)
+		return text_parts
+
 	def transform(self):
 
 		with open(self.text_file, 'r') as f:
 			lines = f.readlines()
 			lines = " ".join([line.strip() for line in lines])
+		lines = self.clean_unacceptable_chars(lines)
 		# cleanup text
 		rep = {'\n': ' ', '\\': ' ', '\"': '"', '-': ' ', '"': ' " ', ',': ' , ', '.': ' . ', '!': ' ! ',
 			   '?': ' ? ', "n't": " not", "'ll": " will", '*': ' * ', '(': ' ( ', ')': ' ) ', "s'": "s '"}
@@ -193,16 +216,27 @@ class PostprocessImage:
 		# using enchant.checker.SpellChecker, get suggested replacements
 		suggestedwords = [self.spellcheker.suggest(w) for w in incorrectwords]
 		# replace incorrect words with [MASK]
-		for w in incorrectwords:
-			text = text.replace(w, '[MASK]')
-			lines = lines.replace(w, '[MASK]')
-
-		print(text)
-		predictions, MASKIDS = self.find_bert_predictions(text)
-		lines = self.predict_word(suggestedwords, MASKIDS, lines, predictions)
-		print(lines)
-		with open(self.text_file.replace('_temporary.txt', '.txt'), 'w') as f:
-			f.write(lines)
+		assert len(incorrectwords) == len(suggestedwords)
+		for word_i, w in enumerate(incorrectwords):
+			if suggestedwords[word_i]:
+				text = text.replace(w, suggestedwords[word_i][0])
+				lines = lines.replace(w, suggestedwords[word_i][0])
+		# for w in incorrectwords:
+		# 	text = text.replace(w, '[MASK]')
+		# 	lines = lines.replace(w, '[MASK]')
+		# many_masks = re.compile("(\[MASK\])*")
+		# text = many_masks.sub('', text)
+		# lines = many_masks.sub('', lines)
+		# text_parts = self.get_parts(text)
+		# text_parts_original = self.get_parts(lines)
+		# for i, text_i in enumerate(text_parts):
+		# 	predictions, MASKIDS = self.find_bert_predictions(text_i)
+		# 	lines_i = self.predict_word(suggestedwords, MASKIDS, text_parts_original[i], predictions)
+		# 	mode = 'w' if i == 0 else 'a'
+		# 	with open(self.text_file.replace('_temporary.txt', '.txt'), mode=mode) as f:
+		# 		f.write(lines_i)
+		with open(self.text_file.replace('_temporary.txt', '.txt'), mode='w') as f:
+			f.write(text)
 		os.remove(self.text_file)
 
 
@@ -216,7 +250,7 @@ def plot_im(img, tras_name: str, num_of_img: int):
 	plt.figure(figsize=(20, 20))
 	plt.subplot(121), plt.imshow(img, cmap="gray")
 	plt.xticks([]), plt.yticks([])
-	plt.savefig("image_{}_{}_transform_{}".format(num_of_img, tras_name, date.today().strftime("%Y%m%d_")))
+	plt.savefig(os.path.join(IM_DIR, "image_{}_{}_transform_{}".format(num_of_img, tras_name, date.today().strftime("%Y%m%d_"))))
 
 
 @click.command()
@@ -230,12 +264,13 @@ def main(input, output, verbose):
 	logger.info("Start preprocessing ...")
 	imgs = check_and_read_input(input, output.replace('.txt', '_temporary.txt'))
 	if verbose == 2:
-		os.mkdir('transformed_images')
+		if not os.path.exists(IM_DIR):
+			os.mkdir(IM_DIR)
 	preprocessor = PreprocessImage(log=logger, verbose=verbose)
 	preprocessed_imgs = preprocessor.apply_transformations(images=imgs, verbose=verbose)
 	for j, preprocessed_img in enumerate(preprocessed_imgs):
 		mode = 'w' if j == 0 else 'a'
-		get_text_from_image(logger, preprocessed_img, output, mode)
+		get_text_from_image(logger, preprocessed_img, output.replace('.txt', '_temporary.txt'), mode)
 	postprocessor = PostprocessImage(output.replace('.txt', '_temporary.txt'))
 	postprocessor.transform()
 
