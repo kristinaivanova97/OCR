@@ -1,0 +1,11 @@
+numpy
+datetime
+re
+os
+opencv-python
+click
+pdf2image
+python-poppler
+imutils
+pytorch-pretrained-bert
+pyenchant

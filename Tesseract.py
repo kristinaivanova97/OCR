@@ -1,40 +1,17 @@
 # OCR for three document types. Launch possibilities and prerequisites are written in README.md
-import pytesseract
-import cv2
-import numpy as np
-import os
+import warnings
+warnings.filterwarnings('ignore', category=FutureWarning)
 import click
 from logging import getLogger, basicConfig, INFO
-import re
-from matplotlib import pyplot as plt
-from pdf2image import convert_from_path
 from imutils import *
-from datetime import date
 import torch
 from pytorch_pretrained_bert import BertTokenizer, BertForMaskedLM
 import re
 import nltk
 from enchant.checker import SpellChecker
 from difflib import SequenceMatcher
-
-PDF_DPI = 350
-IM_DIR = 'transformed_images'
-
-
-def check_and_read_input(input_file, output_file):
-
-	assert input_file.endswith(('.png', '.jpg', '.pdf')), "Input file should be in .png, .jpeg or .pdf formats."
-	assert output_file.endswith('.txt'), "Output file should be in .txt format."
-	imgs = []
-	if input_file.endswith('.pdf'):
-		pages = convert_from_path(input_file, PDF_DPI)
-		for i, page in enumerate(pages):
-			image_name = "Page_" + str(i) + ".jpg"
-			page.save(image_name, "JPEG")
-			imgs.append(cv2.imread(image_name))
-	else:
-		imgs = [cv2.imread(input_file)]
-	return imgs
+from transformers.tokenization_bert import BasicTokenizer
+from utils import *
 
 
 class PreprocessImage:
@@ -53,7 +30,12 @@ class PreprocessImage:
 		return blurred
 
 	def rescale_image(self, image):
-		scale_factor = max(1.0, float(1024.0 / image.shape[1]))
+		"""
+		Rescale image to make one of dimensions equal to 1024
+		input: image object (np.ndarray)
+		output: resized image object
+		"""
+		scale_factor = max(1.0, float(2048.0 / image.shape[1]))
 		width = int(image.shape[1] * scale_factor)
 		height = int(image.shape[0] * scale_factor)
 		dim = (width, height)
@@ -65,9 +47,7 @@ class PreprocessImage:
 	def image_threshold(self, image):
 		"""Get black white tresholding mask and apply to an image"""
 		image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-		# (thresh, black) = cv2.threshold(image, 127, 255, cv2.THRESH_BINARY)
 		(thresh, black) = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-		# black = cv2.bitwise_not(image)
 		if self.verbose:
 			self.logger.info("Image was transferred to black/white colors")
 		return black
@@ -88,6 +68,7 @@ class PreprocessImage:
 		return rotated
 
 	def smooth(self, image):
+		"""Implement a smoothing technique with opening and closing kernels"""
 		kernel = np.ones((1, 1), np.uint8)
 		opening = cv2.morphologyEx(image, cv2.MORPH_OPEN, kernel)
 		closing = cv2.morphologyEx(opening, cv2.MORPH_CLOSE, kernel)
@@ -124,22 +105,32 @@ class PreprocessImage:
 
 
 class PostprocessImage:
-	def __init__(self, text_file):
+	def __init__(self, text_file, verbose, log):
 		assert text_file.endswith('.txt')
 		self.text_file = text_file
 		self.spellcheker = SpellChecker("en_US")
 		self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 		self.model = BertForMaskedLM.from_pretrained('bert-base-uncased')
+		self.logger = log
+		self.verbose = verbose
 
 	def get_personslist(self, text):
+		"""
+		Spellcheker won't work well with person names, so they should be saved
+		input: text
+		output: list with all words with 'PERSON' pos tag
+		"""
 		personslist = []
 		for sent in nltk.sent_tokenize(text):
 			for chunk in nltk.ne_chunk(nltk.pos_tag(nltk.word_tokenize(sent))):
 				if isinstance(chunk, nltk.tree.Tree) and chunk.label() == 'PERSON':
 					personslist.insert(0, (chunk.leaves()[0][0]))
+		if self.verbose:
+			self.logger.info("Got %i person names from text", len(personslist))
 		return list(set(personslist))
 
 	def find_bert_predictions(self, text):
+		"""Predict words for masked elements with Bert"""
 		tokenized_text = self.tokenizer.tokenize(text)
 		indexed_tokens = self.tokenizer.convert_tokens_to_ids(tokenized_text)
 		MASKIDS = [i for i, e in enumerate(tokenized_text) if e == '[MASK]']
@@ -178,9 +169,12 @@ class PostprocessImage:
 		return text_original
 
 	def clean_unacceptable_chars(self, text):
-
+		"""Remove long sequences of the same letter"""
+		text_len = len(text)
 		unacceptable = re.compile(r'([a-zA-Z])\1{2,10}')
 		text = unacceptable.sub('', text)
+		if self.verbose:
+			self.logger.info("After removing long sequences of the same letter from text its lenghs dropped on %i chars", len(text) - text_len)
 		return text
 
 	def get_parts(self, text):
@@ -198,21 +192,24 @@ class PostprocessImage:
 		return text_parts
 
 	def transform(self):
+		"""Transform text to a more grammatical version"""
 
 		with open(self.text_file, 'r') as f:
 			lines = f.readlines()
-			lines = " ".join([line.strip() for line in lines])
+			lines = "\n".join([line.strip() for line in lines])
 		lines = self.clean_unacceptable_chars(lines)
 		# cleanup text
-		rep = {'\n': ' ', '\\': ' ', '\"': '"', '-': ' ', '"': ' " ', ',': ' , ', '.': ' . ', '!': ' ! ',
+		rep = {'\\': ' ', '\"': '"', '-': ' ', '"': ' " ', ',': ' , ', '.': ' . ', '!': ' ! ',
 			   '?': ' ? ', "n't": " not", "'ll": " will", '*': ' * ', '(': ' ( ', ')': ' ) ', "s'": "s '"}
 		rep = dict((re.escape(k), v) for k, v in rep.items())
 		pattern = re.compile("|".join(rep.keys()))
 		text = pattern.sub(lambda m: rep[re.escape(m.group(0))], lines)
 		personslist = self.get_personslist(text)
-		ignorewords = personslist + ["!", ",", ".", '\"', "?", '(', ')', '*', "'"] # using enchant.checker.SpellChecker, identify incorrect words
+		ignorewords = personslist + ["!", ",", ".", '\"', "?", '(', ')', '*', "'"]  # using enchant.checker.SpellChecker, identify incorrect words
+		datetype_pattern = re.compile('(\d*:\d*)|(\d*/\d*)|(\d*)')
 		words = text.split()
-		incorrectwords = [w for w in words if not self.spellcheker.check(w) and w not in ignorewords]
+		incorrectwords = [w for w in words if not self.spellcheker.check(w) and w not in ignorewords and
+						  datetype_pattern.search(w) is None]
 		# using enchant.checker.SpellChecker, get suggested replacements
 		suggestedwords = [self.spellcheker.suggest(w) for w in incorrectwords]
 		# replace incorrect words with [MASK]
@@ -221,6 +218,7 @@ class PostprocessImage:
 			if suggestedwords[word_i]:
 				text = text.replace(w, suggestedwords[word_i][0])
 				lines = lines.replace(w, suggestedwords[word_i][0])
+		# *** not workoing for now part ***
 		# for w in incorrectwords:
 		# 	text = text.replace(w, '[MASK]')
 		# 	lines = lines.replace(w, '[MASK]')
@@ -235,22 +233,27 @@ class PostprocessImage:
 		# 	mode = 'w' if i == 0 else 'a'
 		# 	with open(self.text_file.replace('_temporary.txt', '.txt'), mode=mode) as f:
 		# 		f.write(lines_i)
+		# *** end ***
+		onegrams = OneGramDist(filename='data/count_1w.txt')
+		onegram_fitness = functools.partial(onegram_log, onegrams)
+		tok_text = text.split('\n')
+		final_text = ''
+		for text_i in tok_text:
+			btokenizer = BasicTokenizer(do_lower_case=False)
+			tokens = btokenizer.tokenize(text_i)
+			for tok in tokens:
+				findings = segment(tok.lower(), word_seq_fitness=onegram_fitness)
+				if tok.istitle():
+					findings[0] = findings[0].title()
+				elif tok.isupper():
+					findings[0] = findings[0].upper()
+					if len(findings) > 1:
+						findings[1] = findings[1].upper()
+				final_text += " ".join(findings) + " "
+			final_text += '\n'
 		with open(self.text_file.replace('_temporary.txt', '.txt'), mode='w') as f:
-			f.write(text)
+			f.write(final_text)
 		os.remove(self.text_file)
-
-
-def get_text_from_image(log, image, output_file, mode='w'):
-	custom_oem_psm_config = r'--oem 3 --psm 6'
-	with open(output_file, mode=mode) as out_f:
-		out_f.write(pytesseract.image_to_string(image, lang='eng', config=custom_oem_psm_config))
-
-
-def plot_im(img, tras_name: str, num_of_img: int):
-	plt.figure(figsize=(20, 20))
-	plt.subplot(121), plt.imshow(img, cmap="gray")
-	plt.xticks([]), plt.yticks([])
-	plt.savefig(os.path.join(IM_DIR, "image_{}_{}_transform_{}".format(num_of_img, tras_name, date.today().strftime("%Y%m%d_"))))
 
 
 @click.command()
@@ -270,8 +273,8 @@ def main(input, output, verbose):
 	preprocessed_imgs = preprocessor.apply_transformations(images=imgs, verbose=verbose)
 	for j, preprocessed_img in enumerate(preprocessed_imgs):
 		mode = 'w' if j == 0 else 'a'
-		get_text_from_image(logger, preprocessed_img, output.replace('.txt', '_temporary.txt'), mode)
-	postprocessor = PostprocessImage(output.replace('.txt', '_temporary.txt'))
+		get_text_from_image(logger, preprocessed_img, output.replace('.txt', '_temporary.txt'), mode, verbose)
+	postprocessor = PostprocessImage(output.replace('.txt', '_temporary.txt'), log=logger, verbose=verbose)
 	postprocessor.transform()
 
 
